@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ExoTech | Hyper-Core Arena</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #000000;
+            --panel: rgba(12, 12, 12, 0.95);
+            --text: #ffffff;
+            --danger: #ff3b3b;
+            --danger-dark: #a10000;
+        }
+
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            overflow: hidden;
+        }
+
+        #canvas-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+
+        .ui-layout {
+            position: relative;
+            z-index: 10;
+            display: grid;
+            grid-template-columns: 350px 1fr 380px;
+            height: 100vh;
+            padding: 25px;
+            box-sizing: border-box;
+            gap: 20px;
+            pointer-events: none;
+        }
+
+        .ui-layout > * { pointer-events: auto; }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid #222;
+            border-bottom: 6px solid #111;
+            border-radius: 24px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            backdrop-filter: blur(15px);
+        }
+
+        h1, h2 { margin: 0 0 15px 0; font-weight: 900; text-transform: uppercase; letter-spacing: -0.5px; }
+        h1 { font-size: 1.5rem; color: #fff; }
+
+        input {
+            background: #1a1a1a;
+            border: 2px solid #333;
+            border-radius: 14px;
+            padding: 12px;
+            color: white;
+            margin-bottom: 10px;
+            outline: none;
+        }
+
+        button {
+            border: none;
+            border-radius: 14px;
+            padding: 14px;
+            font-weight: 900;
+            cursor: pointer;
+            transition: 0.1s;
+        }
+
+        .btn-white { background: #fff; color: #000; border-bottom: 4px solid #bbb; margin-bottom: 15px; }
+        .btn-white:active { transform: translateY(2px); border-bottom: 0; }
+
+        .btn-red { background: var(--danger); color: #fff; border-bottom: 4px solid var(--danger-dark); }
+        .btn-red:active { transform: translateY(2px); border-bottom: 0; }
+
+        .user-list { flex-grow: 1; overflow-y: auto; margin-bottom: 10px; }
+        
+        .user-row {
+            display: flex;
+            align-items: center;
+            background: rgba(255,255,255,0.03);
+            padding: 10px;
+            border-radius: 16px;
+            margin-bottom: 8px;
+            border: 2px solid transparent;
+            cursor: pointer;
+        }
+
+        .user-row.active { border-color: #fff; background: rgba(255,255,255,0.07); }
+        .avatar { width: 40px; height: 40px; border-radius: 10px; margin-right: 12px; background: #222; }
+        .score-val { margin-left: auto; font-weight: 900; color: #666; font-family: monospace; }
+        .active .score-val { color: #fff; }
+
+        .wave-box {
+            background: #000;
+            border: 2px solid #222;
+            border-radius: 18px;
+            padding: 10px;
+            height: 100px;
+        }
+        canvas#hzChart { width: 100%; height: 100%; }
+
+        .hud-status { align-self: end; justify-self: center; padding-bottom: 30px; }
+        .pill { background: #000; border: 2px solid #fff; padding: 8px 20px; border-radius: 50px; font-weight: 900; font-size: 0.7rem; }
+    </style>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+
+<div class="ui-layout">
+    <div class="card">
+        <h1>ExoTech Unit</h1>
+        <input type="text" id="pName" placeholder="Participant Name">
+        <button class="btn-white" onclick="addUser()">Add Participant</button>
+        <div id="pList" class="user-list"></div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <button id="mikeOn" class="btn-red" onclick="toggleMic(true)">Start Mike</button>
+            <button id="mikeOff" class="btn-red" style="display:none;" onclick="toggleMic(false)">Off Mike</button>
+        </div>
+    </div>
+
+    <div class="hud-status">
+        <div id="status" class="pill">CORE STABILIZED</div>
+    </div>
+
+    <div class="card">
+        <h2>Leadership Board</h2>
+        <div id="leaderboard" class="user-list"></div>
+        <div class="wave-box">
+            <canvas id="hzChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- 3D ENGINE (TUNNEL + LIQUID CORE) ---
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+    // The Psychedelic Tunnel
+    const tunnelGeo = new THREE.CylinderGeometry(25, 25, 120, 32, 20, true);
+    const tunnelMat = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.05 });
+    const tunnel = new THREE.Mesh(tunnelGeo, tunnelMat);
+    tunnel.rotation.x = Math.PI / 2;
+    scene.add(tunnel);
+
+    // THE GIANT CORE SPHERE
+    const coreGeo = new THREE.SphereGeometry(6, 64, 64);
+    const coreMat = new THREE.MeshPhongMaterial({ 
+        color: 0xffffff, 
+        wireframe: true, 
+        emissive: 0xffffff, 
+        emissiveIntensity: 0.1 
+    });
+    const core = new THREE.Mesh(coreGeo, coreMat);
+    scene.add(core);
+
+    const light = new THREE.PointLight(0xffffff, 1000, 100);
+    light.position.set(0, 0, 10);
+    scene.add(light);
+    camera.position.z = 18;
+
+    // --- APP STATE ---
+    let players = [], activeIdx = 0, isLive = false;
+    let audioCtx, analyser, dataArray, time = 0;
+    const originalPositions = core.geometry.attributes.position.array.slice();
+
+    function addUser() {
+        const name = document.getElementById('pName').value.trim();
+        if(!name || players.length >= 8) return;
+        players.push({ name, score: 0, avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${name}` });
+        document.getElementById('pName').value = '';
+        updateUI();
+    }
+
+    function updateUI() {
+        document.getElementById('pList').innerHTML = players.map((p, i) => `
+            <div class="user-row ${activeIdx === i ? 'active' : ''}" onclick="activeIdx=${i};updateUI()">
+                <img src="${p.avatar}" class="avatar">
+                <span>${p.name}</span>
+                <span class="score-val">${p.score}</span>
+            </div>
+        `).join('');
+
+        const sorted = [...players].sort((a,b) => b.score - a.score);
+        document.getElementById('leaderboard').innerHTML = sorted.map((p, i) => `
+            <div class="user-row">
+                <div style="width:20px; font-weight:900; color:#444">${i+1}</div>
+                <img src="${p.avatar}" class="avatar" style="width:25px; height:25px">
+                <span style="font-size:0.9rem">${p.name}</span>
+                <span class="score-val">${p.score}</span>
+            </div>
+        `).join('');
+    }
+
+    async function toggleMic(start) {
+        if(start && players.length > 0) {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioCtx = new AudioContext();
+            const source = audioCtx.createMediaStreamSource(stream);
+            analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 128;
+            source.connect(analyser);
+            dataArray = new Uint8Array(analyser.frequencyBinCount);
+            isLive = true;
+            document.getElementById('mikeOn').style.display = 'none';
+            document.getElementById('mikeOff').style.display = 'block';
+            document.getElementById('status').innerText = 'CORE ACTIVE';
+        } else {
+            isLive = false;
+            document.getElementById('mikeOn').style.display = 'block';
+            document.getElementById('mikeOff').style.display = 'none';
+            document.getElementById('status').innerText = 'CORE STABILIZED';
+        }
+    }
+
+    const hzCanvas = document.getElementById('hzChart');
+    const hzCtx = hzCanvas.getContext('2d');
+
+    function animate() {
+        requestAnimationFrame(animate);
+        time += 0.01;
+        
+        tunnel.rotation.y += 0.003;
+        core.rotation.y -= 0.005;
+
+        hzCtx.clearRect(0,0, hzCanvas.width, hzCanvas.height);
+
+        if(isLive && analyser) {
+            analyser.getByteFrequencyData(dataArray);
+            let avg = dataArray.reduce((a,b) => a+b, 0) / dataArray.length;
+            let hue = (time * 80) % 360;
+            let currentHSL = `hsl(${hue}, 100%, 50%)`;
+
+            // DEFORM THE SPHERE CORE
+            const positions = core.geometry.attributes.position.array;
+            for (let i = 0; i < positions.length; i += 3) {
+                const x = originalPositions[i];
+                const y = originalPositions[i+1];
+                const z = originalPositions[i+2];
+                const noise = Math.sin(x * 1.5 + time * 5) * Math.cos(y * 1.5 + time * 5) * (avg / 30);
+                positions[i] = x + (x/6) * noise;
+                positions[i+1] = y + (y/6) * noise;
+                positions[i+2] = z + (z/6) * noise;
+            }
+            core.geometry.attributes.position.needsUpdate = true;
+
+            // COLOR SHIFT
+            if(avg > 10) {
+                const col = new THREE.Color(currentHSL);
+                core.material.color = col;
+                core.material.emissive = col;
+                tunnel.material.color = col;
+                light.color = col;
+                core.scale.setScalar(1 + (avg / 100));
+            }
+
+            // THE WAVE
+            hzCtx.beginPath();
+            hzCtx.lineWidth = 6;
+            hzCtx.strokeStyle = avg > 20 ? currentHSL : '#fff';
+            let x = 0;
+            const slice = hzCanvas.width / dataArray.length;
+            for(let i=0; i<dataArray.length; i++) {
+                const y = (dataArray[i]/255) * hzCanvas.height;
+                if(i===0) hzCtx.moveTo(x, hzCanvas.height - y);
+                else hzCtx.lineTo(x, hzCanvas.height - y);
+                x += slice;
+            }
+            hzCtx.stroke();
+
+            // SCORE
+            if(Math.floor(avg * 2) > players[activeIdx].score) {
+                players[activeIdx].score = Math.floor(avg * 2);
+                updateUI();
+            }
+        } else {
+            // Static White Core
+            core.material.color.set(0xffffff);
+            core.material.emissive.set(0x000000);
+            tunnel.material.color.set(0xffffff);
+            core.scale.setScalar(1);
+            
+            hzCtx.beginPath();
+            hzCtx.strokeStyle = '#222';
+            hzCtx.lineWidth = 2;
+            hzCtx.moveTo(0, hzCanvas.height/2);
+            hzCtx.lineTo(hzCanvas.width, hzCanvas.height/2);
+            hzCtx.stroke();
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth/window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        hzCanvas.width = hzCanvas.offsetWidth; hzCanvas.height = hzCanvas.offsetHeight;
+    });
+    
+    hzCanvas.width = hzCanvas.offsetWidth; hzCanvas.height = hzCanvas.offsetHeight;
+    animate();
+</script>
+</body>
+</html>
